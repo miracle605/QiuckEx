@@ -353,3 +353,8 @@ cargo test
 | STELLAR_HORIZON_URL | Horizon API |
 | STELLAR_RPC_URL | Soroban RPC endpoint |
 | REDIS_URL | Redis cache |
+
+## Handsoff notes
+
+<!-- handsoff-issue-203 -->
+- #203: Threat-model payment-link tampering, replay, and parameter substitution
