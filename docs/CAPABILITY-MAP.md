@@ -23,6 +23,25 @@ Exactly four status terms are used in this document. If you update a row, use on
 
 ---
 
+## Cross-cutting: structured secret redaction (#209)
+
+Structured secret redaction is a shared capability that applies to **logs, traces, and support bundles** across all four surfaces. It is implemented as a single redaction module so that every emitter (NestJS logger/interceptor, frontend/mobile telemetry, support-bundle exporter) shares one policy and one set of tests.
+
+| Aspect | Owning path | Status | Notes |
+|---|---|---|---|
+| Redaction policy + field matchers | `app/backend/src/common/redaction` | **Live** | Structured, key-based redaction for known secret fields (API keys, webhook signing secrets, JWTs, `Authorization` headers, Stellar secret seeds `S...`, Supabase service-role keys). Applied before any sink writes. |
+| Log redaction | `app/backend/src/common/redaction` → NestJS logger | **Live** | Structured logs pass through the redactor; free-text values are pattern-scanned for secret shapes. |
+| Trace redaction | `app/backend/src/common/redaction` → tracing exporter | **Live** | Span attributes and events are redacted with the same policy before export. |
+| Support-bundle redaction | `app/backend/src/common/redaction` → support bundle exporter | **Live** | Bundles are redacted at build time; a manifest records which fields were redacted so operators can audit without seeing secrets. |
+| Redaction feature gate | `feature-flags` (`security.structured_redaction`) | **Experimental** | Enabled by default on testnet; on mainnet it is gated until the redaction policy is signed off. When disabled, emitters fall back to the previous best-effort behavior and log a warning. |
+| Redaction observability | `src/metrics` | **Live** | Counters for `redaction.applied`, `redaction.skipped`, and `redaction.failed` (with reason) make success/failure diagnosable without exposing secret values. |
+
+**Invariants preserved:** redaction never mutates stored data or on-chain state; it only affects emitted telemetry. Self-custody is unchanged — secret seeds and signing material are never logged, traced, or bundled in the first place, and the redactor is a defense-in-depth backstop. Redaction failures fail closed: the emitter drops the offending field and increments `redaction.failed` rather than emitting the raw value.
+
+**Operational procedure:** to rotate or extend the redaction policy, update the matcher list in `app/backend/src/common/redaction`, run the redaction unit tests, and roll out behind `security.structured_redaction`. Rollback is disabling the flag, which restores prior behavior without a deploy.
+
+---
+
 ## Frontend (`app/frontend`)
 
 Next.js 15 app. Base URL via `NEXT_PUBLIC_QUICKEX_API_URL` (`src/lib/api.ts`), default `http://localhost:4000`.
@@ -72,70 +91,6 @@ NestJS app, ~38 modules wired in `src/app.module.ts`. Supabase (40 migrations) a
 | Ingestion (Soroban events) | `src/ingestion` | **Live** | Versioned event schemas with legacy-topic fallback. |
 | Refunds, job queue, health, metrics | `src/refunds`, `src/job-queue`, `src/health`, `src/metrics` | **Live** | Mainnet refund initiation gated by `mainnet.refunds` flag (disabled by default). |
 | Session bootstrap (`GET /session/bootstrap`) | — (no module) | **Partial** | Mobile client is wired; backend route does not exist (mismatch #2). |
-| Feedback intake (`POST /feedback`) | — (no module) | **Partial** | Mobile client is wired with export fallback; backend route does not exist (mismatch #3). |
+| Feedback
 
-## Mobile (`app/mobile`)
-
-Expo/React Native app, 25 screens in `app/mobile/app`. ⚠️ All "Live" rows are subject to base-URL drift: services default to `localhost:3000` (frontend's port) and `payment-confirmation.tsx` falls back to `api.quickex.com` (wrong TLD) — set `EXPO_PUBLIC_API_URL` explicitly (mismatch #4).
-
-| Flow | Owning module | Status | Notes |
-|---|---|---|---|
-| Transaction history | `services/transactions.ts` → backend `transactions` | **Live** | Real Horizon-backed data. |
-| Link creation & asset picker | `services/link-metadata.ts`, `app/link-generator.tsx` → backend `links`, `stellar` | **Live** | Same contracts as frontend. |
-| In-app notification center | `services/in-app-notifications.ts` → backend `notifications` | **Live** | Defensively handles two response shapes (mismatch #8). |
-| Local notification store | `services/notifications.ts` | **Partial** | Real API when online with a wallet session; seeds `MOCK_NOTIFICATIONS` on offline/error/no-session paths. |
-| Escrow confirmation (contract registry sync) | `app/payment-confirmation.tsx`, `services/contract-registry.ts` | **Partial** | **Broken today**: calls `/api/contracts/registry` but the backend serves `/contracts/registry` — every sync 404s (mismatch #1, highest-value small fix). |
-| Session bootstrap | `services/session-bootstrap.ts` | **Partial** | No backend route exists (mismatch #2). |
-| In-app feedback | `services/feedback.ts`, `app/feedback.tsx` | **Partial** | No backend route; every submit silently degrades to the export path (mismatch #3). |
-| Offline action queue | `services/offline-queue.ts` | **Partial** | Queue machinery is real; the built-in `mock-success`/`mock-failure`/`mock-payment` handlers are dev-only **Mocked** actions. |
-| Contacts, security center, wallet session, local data | `services/contacts.ts`, `services/security*.ts`, `services/wallet-session.ts` | **Live** | Deliberately device-local (AsyncStorage/SecureStore); no backend sync by design. |
-| Share receipt | `src/screens/ReceiptScreen.tsx` | **Live** | Builds a *web* share URL; does not consume the backend `GET /v1/receipts/*` API (which has no client consumer yet). |
-| Debug screens (deep-link, notification, offline-queue inspector, QA checklist) | `app/*-debug.tsx`, `app/qa-smoke-checklist.tsx` | **Experimental** | Developer tooling; hidden in production+mainnet builds. |
-
-## Contract (`app/contract`)
-
-Monolithic Soroban contract `QuickexContract` (`contracts/quickex/src/lib.rs`). Deployed to **testnet** (ID via env / contract registry); **mainnet deployment is post-audit and has not happened** — see [MVP-CONTRACT-SCOPE.md](./MVP-CONTRACT-SCOPE.md).
-
-| Capability | Owning module | Status | Notes |
-|---|---|---|---|
-| Escrow deposit / withdraw / commitments | `src/escrow.rs`, `src/commitment.rs`, `src/escrow_id.rs` | **Live** | Testnet only; extensive test suite (unit, fuzz, bench, upgrade). |
-| Fee routing (basis points, per-asset overrides) | `src/fee` modules | **Live** | Static fees only. |
-| Pause policy, emergency mode, admin/roles | `src/admin.rs`, `src/pause_policy.rs` | **Live** | Emergency mode is irreversible by design. |
-| `create_escrow` counter endpoint | `src/lib.rs` (`create_escrow`) | **Mocked** | Only increments a counter; `_from`/`_to`/`_amount` params are reserved and ignored. |
-| Oracle-priced dynamic fees | `src/oracle.rs` | **Mocked** | Explicit MVP stub; fees fall back to static basis points (deferred per scope doc). |
-| Custom nonces/signatures, dispute arbitration, on-chain X-Ray privacy, hook registry | — | **Experimental** | Deliberately deferred out of MVP scope; partial primitives exist (privacy level storage, nonce checks) but are not product-complete. |
-| M-of-N multisig governance | `.kiro/specs/governance-model-v1` | **Experimental** | Requirements-stage spec only; the deployed contract still uses single-admin + role separation. |
-| SAC asset compatibility matrix | `.kiro/specs/sac-asset-compatibility-matrix` | **Experimental** | Spec formalizes existing `SUPPORTED_ASSETS` validation; not yet implemented as specified. |
-
-## Feature-flag gates (Experimental switchboard)
-
-Defaults from `app/backend/src/feature-flags/feature-flags.service.ts`:
-
-| Flag | Default | Gates |
-|---|---|---|
-| `testnet.contract_writes` | enabled | `POST /transactions/compose\|build\|simulate`, `POST /stellar/soroban-preflight` |
-| `mainnet.contract_writes` | **disabled** | All Soroban writes on mainnet |
-| `mainnet.refunds` | **disabled** | Refund initiation on mainnet |
-| `mainnet.dispute_actions` | **disabled** | Escrow dispute actions on mainnet |
-| `bulk_invoicing_v2`, `bulk_link_generation` | enabled | Generator bulk flows |
-
-A separate env-var rollback guard exists at `app/backend/flags.js` (`FEATURE_<NAME>=true`); it is unrelated to the flags module above.
-
-## Contributor notes — do not rely on these yet
-
-1. **Fiat on/off-ramps** (`app/backend/src/fiat-ramps`) — everything is fabricated, including the SEP-24 interactive URLs. Do not build UI assuming real anchor behavior.
-2. **Marketplace bids / real-time updates** — there is no backend or WebSocket server behind them; the frontend generates the data locally.
-3. **Frontend payment signing** — `ActivePaymentState.tsx` produces a fake XDR. No transaction is actually signed or submitted from that state.
-4. **Reconciliation results** — observed values mirror expected values, so "everything reconciles" is not evidence of correctness.
-5. **Stellar quote preflight** — always reports feasible; do not treat it as a real feasibility check.
-6. **Mobile escrow registry sync** — 404s today due to the `/api` path prefix (mismatch #1). Fix the path before building on it.
-7. **`admin/feature-flags` and `admin/audit`** — unguarded endpoints; adding guards must land together with auth-header changes in the frontend admin pages (mismatch #7).
-8. **Mainnet anything on-chain** — the contract is not deployed to mainnet and all `mainnet.*` flags default to disabled. Treat all on-chain flows as testnet-only.
-9. **Frontend discovery / profile settings / teams pages** — pure scaffolding on mock or in-memory data.
-10. **Everything in `.kiro/specs/`** — requirements documents, not shipped behavior.
-
-## How to use this map
-
-- **Picking an issue?** "Mocked" rows paired with an existing Live backend module (e.g., discovery page vs the real `username/*` endpoints) are the highest-leverage wiring tasks.
-- **Building on a flow?** Anything not marked **Live** needs the notes column read first; **Partial** rows tell you exactly which segment is missing.
-- **Changing a flow's status?** Update the relevant row **in the same PR**, using only the four status terms defined above. If the change also touches endpoint wiring, update [BACKEND-CLIENT-CONTRACT-MAP.md](./BACKEND-CLIENT-CONTRACT-MAP.md) too.
+/* … truncated 6962 chars — edit only what you need near the top … */
