@@ -353,3 +353,8 @@ cargo test
 | STELLAR_HORIZON_URL | Horizon API |
 | STELLAR_RPC_URL | Soroban RPC endpoint |
 | REDIS_URL | Redis cache |
+
+## Handsoff notes
+
+<!-- handsoff-issue-206 -->
+- #206: Add replay protection to webhook delivery and redelivery APIs
