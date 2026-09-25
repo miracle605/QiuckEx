@@ -55,3 +55,27 @@ Once a WalletConnect session has expired or been disconnected, it MUSTNOT be tre
 INV-15: Disconnected-Session Recovery Safety
 
 Recovery of a disconnected session MUST be explicit and user-initiated.It MUST NOT auto-submit pending operations on the user's behalf, and itMUST surface the pending-operation set so the user can re-confirm eachaction. Recovery MUST preserve INV-04 (no double-settlement) byreconciling against on-chain state before any resubmission.
+Escrow Creation Invariants
+INV-16: Validated Escrow Creation
+
+Escrow creation MUST be a validated, stateful operation rather than acounter increment. Each successful creation MUST persist a distinctescrow record keyed by (creator, nonce) and MUST emit an observablecreation event. A mocked or counter-only implementation MUST NOT be usedin production.
+
+INV-17: Escrow Creation Authorization
+
+Only the authenticated creator identified by the escrow's creator fieldmay create an escrow. Creation requests from any other actor MUST berejected with a stable authorization error and MUST NOT mutate state.
+
+INV-18: Escrow Creation Idempotency
+
+Escrow creation MUST be idempotent per (creator, nonce). A repeatedcreation request with an already-consumed (creator, nonce) pair MUSTreturn the original escrow result rather than creating a second escrowor incrementing any counter. This preserves INV-07 (nonce uniqueness).
+
+INV-19: Escrow Creation Validation
+
+Escrow creation MUST reject malformed input (missing or zero-lengthidentifiers, invalid amounts, unsupported assets) and expired requests(expiry in the past) with stable, distinguishable errors. Rejectedrequests MUST NOT create an escrow or mutate any counter.
+
+INV-20: Escrow Creation Dependency Failure
+
+If a required dependency (token contract, registry, or storage) failsduring escrow creation, the operation MUST fail atomically: no partialescrow record, no counter increment, and no emitted success event. Thefailure MUST surface a stable dependency error.
+
+INV-21: Escrow Creation Feature Gating
+
+Escrow creation behavior that is not yet ready for mainnet MUST beexplicitly feature-gated. When the gate is disabled, creation MUST failclosed with a stable error rather than falling back to the mockedcounter.
