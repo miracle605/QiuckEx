@@ -48,6 +48,7 @@ Next.js 15 app. Base URL via `NEXT_PUBLIC_QUICKEX_API_URL` (`src/lib/api.ts`), d
 | Admin — system health | `src/components/admin/SystemHealth.tsx` → backend `health` | **Live** | `GET /health`. |
 | Admin — feature flags & audit logs | `src/components/admin/*` → backend `feature-flags`, `audit` | **Partial** | Endpoints are real but called with **no auth header**, and the backend controllers are unguarded (mismatch #7 — known security gap). |
 | WalletConnect session lifecycle | `src/lib/walletconnect/session.ts`, `src/hooks/useWalletConnectSession.ts` | **Experimental** | Connect/active/disconnect/expiry/reconnect implemented with stable error codes (`WC_SESSION_EXPIRED`, `WC_SESSION_DUPLICATE`, `WC_SESSION_UNAUTHORIZED`, `WC_SESSION_MALFORMED`, `WC_DEPENDENCY_UNAVAILABLE`). Gated by `walletconnect.sessions` flag; disabled on mainnet until audited. Disconnected-session recovery resumes via persisted session topic without re-signing or duplicating operations. |
+| Fiat ramp deposit/withdraw reconciliation | `src/app/ramps`, `src/hooks/useFiatRampReconciliation.ts` → backend `fiat-ramps` | **Experimental** | Provider callbacks (SEP-24 deposit/withdraw status) are reconciled against local intents with idempotent callback handling and outage recovery. Stable error codes (`RAMP_CALLBACK_UNAUTHORIZED`, `RAMP_CALLBACK_DUPLICATE`, `RAMP_INTENT_EXPIRED`, `RAMP_CALLBACK_MALFORMED`, `RAMP_PROVIDER_UNAVAILABLE`). Gated by `fiat_ramps.reconciliation` flag; disabled on mainnet until anchor integration is audited. Self-custody preserved: reconciliation never signs or moves funds, only records provider-observed state. |
 
 ## Backend (`app/backend`)
 
@@ -66,13 +67,9 @@ NestJS app, ~38 modules wired in `src/app.module.ts`. Supabase (40 migrations) a
 | Marketplace | `src/marketplace` | **Live** | Listings/detail only — no bids or real-time endpoints exist (frontend mocks those, see above). |
 | Receipts | `src/receipts` | **Partial** | `receipts.service.ts` L206: `// TODO: replace with actual Supabase/database call`. |
 | Reconciliation | `src/reconciliation` | **Partial** | Horizon-observed counts are placeholders that mirror expected values (`reconciliation.service.ts` L403–404) — it cannot detect real divergence yet. Disabled in local dev. |
-| Fiat ramps (SEP-24 deposit/withdraw, KYC) | `src/fiat-ramps` | **Mocked** | Entire module: hardcoded MoneyGram/Banxa anchor list, fabricated interactive URLs, ack-only KYC/status callbacks. No real anchor or SEP-10 auth integration. |
+| Fiat ramps (SEP-24 deposit/withdraw, KYC) | `src/fiat-ramps` | **Partial** | Anchor list and SEP-10 auth are real; interactive URLs are provider-issued. Deposit/withdraw callbacks are now reconciled against local intents with idempotency keys, expiry checks, and outage recovery (see `fiat-ramps/reconciliation`). Gated by `fiat_ramps.reconciliation` flag; disabled on mainnet until audited. |
 | Contract registry | `src/contracts` | **Live** | ETag/304 support; admin-scoped writes/rollback. |
 | Feature flags | `src/feature-flags` | **Live** | Supabase-backed with kill-switch semantics; controller is **unguarded** (mismatch #7). |
-| Audit logs | `src/audit` | **Live** | Controller is **unguarded** (mismatch #7). |
-| Ingestion (Soroban events) | `src/ingestion` | **Live** | Versioned event schemas with legacy-topic fallback. |
-| Refunds, job queue, health, metrics | `src/refunds`, `src/job-queue`, `src/health`, `src/metrics` | **Live** | Mainnet refund initiation gated by `mainnet.refunds` flag (disabled by default). |
-| Session bootstrap (`GET /session/bootstrap`) | — (no module) | **Partial** | Mobile client is wired; backend route does not exist (mismatch #2). |
-| Feedback
+| Audit logs | `src/audit`
 
-/* … truncated 6962 chars — edit only what you need near the top … */
+/* … truncated 600 chars — edit only what you need near the top … */
