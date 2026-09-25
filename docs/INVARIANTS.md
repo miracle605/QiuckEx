@@ -39,3 +39,19 @@ Zero-amount payments follow the same state machine but MUST NOT resultin any tok
 INV-10: Fee Ceiling
 
 Protocol fees collected per payment MUST NOT exceed the configuredmaximum fee percentage of the payment amount.
+Security Review Invariants
+INV-11: Security Review Authorization
+
+Only an actor holding the security-review commissioner role may commissiona third-party smart-contract security review. Unauthorized commissionattempts MUST be rejected with a stable error and MUST NOT create ormutate any review record.
+INV-12: Security Review Idempotency
+
+Commissioning a security review MUST be idempotent per (contract, commit,reviewer) tuple. A duplicate commission request MUST return the existingreview record unchanged rather than creating a second review or resettingits status.
+INV-13: Security Review Expiry
+
+A commissioned security review MUST carry an explicit expiry. Once expired,a review MUST NOT be reported as valid or current; it MUST be surfaced asexpired and MUST NOT gate mainnet enablement.
+INV-14: Security Review Feature Gating
+
+Security-review commissioning and tracking MUST be feature-gated. Where thereview capability is not ready for mainnet, the gate MUST default todisabled and the capability MUST fail closed with a stable error ratherthan silently permitting unreviewed contracts.
+INV-15: Security Review Dependency Failure
+
+When the third-party review dependency is unavailable, commissioning MUSTfail closed with a stable error and MUST NOT record a partial or optimisticreview state. Retries MUST be safe and MUST NOT produce duplicate reviews.
