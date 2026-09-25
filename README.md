@@ -358,3 +358,6 @@ cargo test
 
 <!-- handsoff-issue-203 -->
 - #203: Threat-model payment-link tampering, replay, and parameter substitution
+
+<!-- handsoff-issue-205 -->
+- #205: Implement key rotation grace periods and revocation propagation
