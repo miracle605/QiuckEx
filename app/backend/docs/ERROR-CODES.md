@@ -75,3 +75,43 @@ Every lifecycle transition emits a structured log with `requestId`, `userId`,
 `walletconnect_recovery_total{outcome}`, and
 `walletconnect_recovery_latency_seconds`. No session secrets or wallet
 addresses are logged.
+
+## Payments (native and issued assets)
+
+Payment submission is idempotent per `(userId, idempotencyKey)`. Native (XLM)
+and issued-asset payments share the same envelope; the asset is identified by
+`asset` (`native` or `CODE:ISSUER`). Testnet-only coverage is gated by
+`PAYMENTS_TESTNET_ENABLED`; when the gate is off the endpoint fails closed with
+`PAYMENTS_FEATURE_DISABLED`.
+
+| Code | HTTP | Meaning |
+| --- | --- | --- |
+| `PAYMENT_NOT_FOUND` | 404 | No payment exists for the given `paymentId`. |
+| `PAYMENT_UNAUTHORIZED` | 403 | Caller does not own the source account or the referenced payment. |
+| `PAYMENT_DUPLICATE` | 409 | Idempotency key already applied; the original result is returned. |
+| `PAYMENT_EXPIRED` | 410 | Payment intent passed its expiry before submission; re-create the intent. |
+| `PAYMENT_MALFORMED` | 400 | Payload failed validation (bad amount, asset, memo, or destination). |
+| `PAYMENT_ASSET_UNSUPPORTED` | 400 | Asset is not enabled for payments (unknown code/issuer or not allow-listed). |
+| `PAYMENT_INSUFFICIENT_BALANCE` | 422 | Source account cannot cover amount plus fee. |
+| `PAYMENT_DEPENDENCY_UNAVAILABLE` | 503 | Horizon/relay dependency failed; safe to retry with backoff. |
+| `PAYMENT_SUBMISSION_FAILED` | 502 | Transaction was rejected on-chain; no funds moved, safe to retry. |
+| `PAYMENT_FEATURE_DISABLED` | 403 | Payments are feature-gated off for this environment (e.g. mainnet). |
+
+### Payment semantics
+
+- Native and issued-asset payments follow the same state machine:
+  `created -> submitted -> (confirmed | failed)`. A `failed` submission never
+  moves funds and is safe to retry with the same idempotency key.
+- Duplicate submissions with the same idempotency key return the original
+  outcome; `PAYMENT_DUPLICATE` is only surfaced in strict mode.
+- Expired intents are never silently revived; the client must create a new
+  intent and re-authorize.
+- `PAYMENT_FEATURE_DISABLED` is returned when `PAYMENTS_TESTNET_ENABLED` is off,
+  so mainnet rollouts fail closed until coverage is promoted.
+
+### Observability
+
+Every payment transition emits a structured log with `requestId`, `userId`,
+`paymentId`, `asset`, `fromState`, `toState`, and `latencyMs`. Metrics:
+`payments_total{asset,outcome}` and `payments_latency_seconds{asset}`. No
+secrets, signing keys, or full wallet addresses are logged.
