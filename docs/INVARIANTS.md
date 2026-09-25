@@ -55,3 +55,19 @@ Security-review commissioning and tracking MUST be feature-gated. Where therevie
 INV-15: Security Review Dependency Failure
 
 When the third-party review dependency is unavailable, commissioning MUSTfail closed with a stable error and MUST NOT record a partial or optimisticreview state. Retries MUST be safe and MUST NOT produce duplicate reviews.
+Wallet Capability Invariants
+INV-16: Wallet Capability Discovery
+
+Wallet capabilities (supported networks, signing methods, and requiredfeatures) MUST be discovered from the wallet itself rather than assumed.A capability that cannot be discovered MUST be treated as unsupported.
+INV-17: Unsupported-Wallet Fail-Closed
+
+When a wallet does not advertise a capability required for an operation, theoperation MUST fail closed with a stable, user-facing error. The system MUSTNOT silently degrade, substitute a different signer, or proceed with apartially supported wallet.
+INV-18: Self-Custody Preservation
+
+Wallet capability discovery and unsupported-wallet handling MUST NOT requireor request private keys, seed phrases, or any secret material. Signing MUSTremain delegated to the wallet; the system only inspects advertisedcapabilities.
+INV-19: Wallet Capability Feature Gating
+
+Wallet capability discovery MUST be feature-gated. Where discovery is notready for mainnet, the gate MUST default to disabled and unsupported walletsMUST be rejected with a stable error rather than permitted through.
+INV-20: Wallet Capability Dependency Failure
+
+When the wallet capability discovery dependency is unavailable or returns amalformed response, the operation MUST fail closed with a stable error andMUST NOT cache or assume a capability. Retries MUST be safe and idempotent.
