@@ -22,6 +22,47 @@ Auth conventions:
 - **Admin-scoped API key** (`@RequireScopes('admin')`): all `admin/*` controllers, contract registry writes (`publish`, `PUT deployments/:name`, `rollback`)
 - Errors follow the global envelope `{ code, message, fields? }` (global `ValidationPipe` in `main.ts`, e.g. `VALIDATION_ERROR`)
 
+## WalletConnect session lifecycle
+
+WalletConnect session handling is owned by the **frontend** wallet layer (`app/frontend/src/lib/walletconnect/*`) and is consumed by the mobile app through the shared session contract below. The backend exposes no WalletConnect routes; session state is client-held so self-custody is preserved (the backend never sees keys or session topics).
+
+### Session states
+
+| State | Meaning | Client behavior |
+|---|---|---|
+| `disconnected` | No active session | Show connect CTA; clear cached topic |
+| `connecting` | Pairing/approval in flight | Disable duplicate connect attempts (idempotent) |
+| `connected` | Active session with a live topic | Normal signing flow |
+| `expired` | Session past its `expiry` timestamp | Force re-pair; do not reuse topic |
+| `recovering` | Reconnecting after a dropped transport | Resume without re-signing completed operations |
+
+### Lifecycle contract
+
+| Operation | Trigger | Guarantees |
+|---|---|---|
+| `connect()` | User action | Idempotent while `connecting`/`connected`; returns the existing session instead of opening a second pairing |
+| `disconnect()` | User action or `session_delete` event | Idempotent; safe to call when already `disconnected` |
+| `recover()` | Transport drop / app resume | Reuses the stored topic; never re-submits an already-confirmed operation |
+| expiry check | On resume and before signing | Sessions past `expiry` transition to `expired` and require re-pair |
+
+### Stable error codes
+
+| Code | Condition |
+|---|---|
+| `WC_UNAUTHORIZED` | Session not approved / user rejected pairing |
+| `WC_DUPLICATE_SESSION` | A connect was attempted while one is already active |
+| `WC_SESSION_EXPIRED` | Session past `expiry` |
+| `WC_MALFORMED_SESSION` | Stored session payload fails validation |
+| `WC_DEPENDENCY_UNAVAILABLE` | Relay/bridge unreachable |
+
+### Feature gate
+
+WalletConnect is **feature-gated** and off by default on mainnet. Enable with `NEXT_PUBLIC_WALLETCONNECT_ENABLED=true` (frontend) / `EXPO_PUBLIC_WALLETCONNECT_ENABLED=true` (mobile). When disabled, the connect CTA is hidden and `connect()` returns `WC_DEPENDENCY_UNAVAILABLE` rather than attempting a pairing. Testnet may enable it freely; mainnet rollout requires the gate to be flipped explicitly.
+
+### Observability
+
+Session transitions emit structured logs (`wc.session.state`, `wc.session.error` with the stable code) and counters for connect/disconnect/recover success and failure. Logs never include session topics, keys, or pairing URIs.
+
 ## Frontend endpoint map
 
 | Screen / feature | Endpoint | Owning backend module | Request → response summary |
@@ -60,47 +101,6 @@ Auth conventions:
 Explicitly tracked so contributors don't re-discover them:
 
 1. **Mobile contract registry path is wrong** — `app/mobile/services/contract-registry.ts` calls `/api/contracts/registry`; the backend route is `/contracts/registry` (no global `api` prefix exists). This breaks Escrow registry sync on the payment-confirmation screen. Fix: drop the `/api` prefix (and consider adopting `If-None-Match`/ETag, which the backend already supports).
-2. **Mobile `GET /session/bootstrap`** — client is wired (`services/session-bootstrap.ts`), backend route does not exist. Either implement the backend controller or feature-gate the client call.
-3. **Mobile `POST /feedback`** — no backend controller; the client's export fallback masks this, but every submit silently "fails" to the export path when a backend is configured.
-4. **Base-URL drift** — resolved: mobile services default to `http://localhost:4000`, and `payment-confirmation.tsx` uses the canonical `api.quickex.to` fallback. `EXPO_PUBLIC_API_URL` can still override the local default when needed.
-5. **Prefix inconsistency** — `v1/receipts` is the only versioned controller; `api/environment-parity` is the only `api/`-prefixed one; everything else is unprefixed. Treat these as historical accidents, not conventions to copy.
-6. **Two controllers share the `links` prefix** — `links.controller.ts` (metadata) and `scam-alerts.controller.ts` both mount `@Controller("links")`. Route collisions are possible when adding new `links/*` subroutes; check both files.
-7. **`admin/feature-flags` and `admin/audit` are unguarded** — unlike every other `admin/*` controller, `feature-flags.controller.ts` and `audit.controller.ts` have **no `ApiKeyGuard`/`RequireScopes`** (the audit controller even carries a `// In a real app, this route would be protected by an AdminGuard` comment). The frontend admin pages (`FeatureFlags.tsx`, `AuditLogs.tsx`) accordingly call them with no auth header. This is a known security gap: when guards are added, those two frontend pages must add key handling in the same change.
-8. **Notification list response shape is loose** — mobile handles both a raw array and a Supabase-style envelope from `/notifications/in-app`. Pin the backend DTO before removing the client's defensive unwrapping.
+2. **Mobile `GET /session/bootstrap`** — client is wired
 
-## Compatibility aliases & migration paths
-
-- **`POST /transactions/build` is a deliberate alias of `POST /transactions/compose`** — both invoke `TransactionsService.composeTransaction()` and return unsigned XDR + `correlationId`. Prefer `compose` in new code; `build` exists for compatibility.
-- **Feature-flag gate on contract writes** — `POST /transactions/compose|build|simulate` and `POST /stellar/soroban-preflight` all require `TESTNET_CONTRACT_WRITES_FLAG` + `NetworkSafetyGuard` (+ `ContractMethodAllowlistGuard` on transactions). Clients must handle 403/503 on mainnet or when the flag is off.
-- **Contract registry ETag protocol** — `GET /contracts/registry` returns an `ETag`; clients should send `If-None-Match` and treat 304 as "unchanged". This is the sanctioned change-detection path for contract ID rollovers (registry rollback via `POST /contracts/registry/rollback` shifts the active entry without a client-side path change).
-- **Event schema compatibility** — ingestion-side per-event `compatibleVersions` lists live in `app/backend/src/ingestion/event-schema.ts` with legacy-topic fallback in the Soroban event parser. Relevant when payloads surfaced through `transactions`/`receipts` change shape.
-
-## Implemented on the backend, no client consumer yet
-
-Useful when picking issues — these are "wire the client" opportunities, not new backend work:
-
-| Endpoint family | Backend module | Docs |
-|---|---|---|
-| `GET /username/search`, `/trending`, `/recently-active`, `/featured`, `POST /username/toggle-public` | `usernames` | `app/backend/docs/API-REFERENCE-PUBLIC-PROFILES.md` |
-| `links/recurring/*` | `links` (`recurring-payments.controller.ts`) | `app/backend/docs/RECURRING-PAYMENTS.md` |
-| `GET /v1/receipts/tx/:txHash`, `GET /v1/receipts/address/:address` | `receipts` | — (mobile ReceiptScreen builds a web URL instead) |
-| `GET /payments/recent` | `payments` | — |
-| `POST /stellar/quote`, `GET /stellar/quote/:quoteId`, `POST /stellar/path-preview/strict-send` | `stellar` | — |
-| `GET /analytics/time-series`, `GET /analytics/assets` | `analytics` | `app/backend/docs/ANALYTICS-API.md` (frontend uses only `report`/`export`) |
-| `notifications/preferences/*` | `notifications` | — |
-| `admin/refunds`, `admin/rc-validation`, `admin/operations`, `admin/notification-templates`, `admin/support/bundle` | respective modules | operator-facing, admin key required |
-| `transaction-timeline`, `privacy`, `reconciliation`, `telegram`, `metrics`, `developer/testnet`, `api/environment-parity` | respective modules | server-side only today |
-
-## Planned but not fully wired
-
-- **Session bootstrap** (`GET /session/bootstrap`) — mobile client exists, backend missing (mismatch #2).
-- **Feedback intake** (`POST /feedback`) — mobile client exists with export fallback, backend missing (mismatch #3).
-- **Soroban contract writes on mainnet** — the compose/build/simulate/preflight family is testnet-only behind `TESTNET_CONTRACT_WRITES_FLAG`; mainnet enablement is a future gate, not a bug.
-- **Oracle-priced fees** — the on-chain oracle fetch is a stub (`app/contract/contracts/quickex/src/oracle.rs`); no client-facing endpoint yet, fees fall back to static basis points.
-
-## How to use this map
-
-- **Adding a client call?** Confirm the exact controller prefix in `app/backend/src/**/**.controller.ts` — do not assume `/api` or `/v1` prefixes (there is no global prefix).
-- **Adding a backend route?** Check whether frontend and mobile need it, keep the prefix conventions above in mind, and update this map in the same PR.
-- **Reviewing a PR that touches a route or DTO?** Grep both client apps for the path string; the tables above tell you which screens break.
-- **Picking an issue?** The mismatch list is ordered roughly by user impact; #1 (mobile registry path) breaks a live payment screen and is the highest-value small fix.
+/* … truncated 5630 chars — edit only what you need near the top … */

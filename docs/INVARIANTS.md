@@ -39,3 +39,19 @@ Zero-amount payments follow the same state machine but MUST NOT resultin any tok
 INV-10: Fee Ceiling
 
 Protocol fees collected per payment MUST NOT exceed the configuredmaximum fee percentage of the payment amount.
+WalletConnect Session Invariants
+INV-11: Session Custody Preservation
+
+A WalletConnect session MUST NOT hold, derive, or transmit private keymaterial. Session state is limited to the pairing topic, the peer publickey, and the negotiated chain/account identifiers. Disconnecting orrecovering a session MUST NOT alter custody: the user's keys remain intheir wallet at all times.
+INV-12: Session-Bound Authorization
+
+Every state transition that requires a wallet signature (fund, fulfill,refund, dispute resolution) MUST be authorized by a currently activeWalletConnect session whose peer public key matches the account thatsigns the transaction. A signature produced under a session that hasbeen disconnected or expired MUST be rejected.
+INV-13: Session Idempotency
+
+Reconnecting or recovering a WalletConnect session MUST NOT replay orduplicate any previously submitted operation. Each operation carries aunique request id; a repeated request id within the same session MUSTreturn the original result rather than re-executing the transition.
+INV-14: Session Expiry Monotonicity
+
+Once a WalletConnect session has expired or been disconnected, it MUSTNOT be treated as active again without a fresh pairing handshake. A stalerecovery attempt against an expired session MUST fail with a stableerror and MUST NOT silently re-establish trust.
+INV-15: Disconnected-Session Recovery Safety
+
+Recovery of a disconnected session MUST be explicit and user-initiated.It MUST NOT auto-submit pending operations on the user's behalf, and itMUST surface the pending-operation set so the user can re-confirm eachaction. Recovery MUST preserve INV-04 (no double-settlement) byreconciling against on-chain state before any resubmission.
