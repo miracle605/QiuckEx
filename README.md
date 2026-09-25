@@ -358,3 +358,6 @@ cargo test
 
 <!-- handsoff-issue-206 -->
 - #206: Add replay protection to webhook delivery and redelivery APIs
+
+<!-- handsoff-issue-207 -->
+- #207: Harden SSR metadata fetches against SSRF and internal-network access
