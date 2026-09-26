@@ -39,35 +39,11 @@ Zero-amount payments follow the same state machine but MUST NOT resultin any tok
 INV-10: Fee Ceiling
 
 Protocol fees collected per payment MUST NOT exceed the configuredmaximum fee percentage of the payment amount.
-Security Review Invariants
-INV-11: Security Review Authorization
 
-Only an actor holding the security-review commissioner role may commissiona third-party smart-contract security review. Unauthorized commissionattempts MUST be rejected with a stable error and MUST NOT create ormutate any review record.
-INV-12: Security Review Idempotency
+---
 
-Commissioning a security review MUST be idempotent per (contract, commit,reviewer) tuple. A duplicate commission request MUST return the existingreview record unchanged rather than creating a second review or resettingits status.
-INV-13: Security Review Expiry
+## Architectural Enforcement References
 
-A commissioned security review MUST carry an explicit expiry. Once expired,a review MUST NOT be reported as valid or current; it MUST be surfaced asexpired and MUST NOT gate mainnet enablement.
-INV-14: Security Review Feature Gating
-
-Security-review commissioning and tracking MUST be feature-gated. Where thereview capability is not ready for mainnet, the gate MUST default todisabled and the capability MUST fail closed with a stable error ratherthan silently permitting unreviewed contracts.
-INV-15: Security Review Dependency Failure
-
-When the third-party review dependency is unavailable, commissioning MUSTfail closed with a stable error and MUST NOT record a partial or optimisticreview state. Retries MUST be safe and MUST NOT produce duplicate reviews.
-Wallet Capability Invariants
-INV-16: Wallet Capability Discovery
-
-Wallet capabilities (supported networks, signing methods, and requiredfeatures) MUST be discovered from the wallet itself rather than assumed.A capability that cannot be discovered MUST be treated as unsupported.
-INV-17: Unsupported-Wallet Fail-Closed
-
-When a wallet does not advertise a capability required for an operation, theoperation MUST fail closed with a stable, user-facing error. The system MUSTNOT silently degrade, substitute a different signer, or proceed with apartially supported wallet.
-INV-18: Self-Custody Preservation
-
-Wallet capability discovery and unsupported-wallet handling MUST NOT requireor request private keys, seed phrases, or any secret material. Signing MUSTremain delegated to the wallet; the system only inspects advertisedcapabilities.
-INV-19: Wallet Capability Feature Gating
-
-Wallet capability discovery MUST be feature-gated. Where discovery is notready for mainnet, the gate MUST default to disabled and unsupported walletsMUST be rejected with a stable error rather than permitted through.
-INV-20: Wallet Capability Dependency Failure
-
-When the wallet capability discovery dependency is unavailable or returns amalformed response, the operation MUST fail closed with a stable error andMUST NOT cache or assume a capability. Retries MUST be safe and idempotent.
+- [CUSTODY-TRUST-THREAT-MODEL.md](./CUSTODY-TRUST-THREAT-MODEL.md): Full threat modeling, trust assumptions, and cryptographic custody boundary enforcement for INV-01 through INV-10.
+- [MAINNET-PROMOTION-AND-GOVERNANCE.md](./MAINNET-PROMOTION-AND-GOVERNANCE.md): Invariant verification suite requirements and multisig governance rules prior to Mainnet launch.
+- [CAPABILITY-MAP.md](./CAPABILITY-MAP.md): Current implementation status of on-chain and off-chain invariant enforcement.

@@ -24,6 +24,7 @@ import {
   type ActivityFilterState,
 } from "@/lib/activityFilters";
 import { PaymentHistoryFilters } from "@/components/PaymentHistoryFilters";
+import { cacheInvalidator } from "@/lib/cacheInvalidation";
 
 type DashboardResponse = {
   items: ActivityFeedItem[];
@@ -101,7 +102,19 @@ function DashboardContent() {
     void callApi(() => fetchActivityFeed(20));
     void fetchUserBids().then(setUserBids);
     void fetchUserListings().then(setUserListings);
-  }, [callApi, feedRetryCount]);
+
+    const unsubscribe = cacheInvalidator.subscribe((event) => {
+      if (
+        event.type === "payment_completed" ||
+        event.type === "link_created" ||
+        event.type === "activity_feed_cleared"
+      ) {
+        void callApi(() => fetchActivityFeed(20));
+        void loadMetrics();
+      }
+    });
+    return () => unsubscribe();
+  }, [callApi, feedRetryCount, loadMetrics]);
 
   useEffect(() => {
     if (!statusMessage) {
