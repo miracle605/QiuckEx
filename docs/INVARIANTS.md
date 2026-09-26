@@ -39,43 +39,11 @@ Zero-amount payments follow the same state machine but MUST NOT resultin any tok
 INV-10: Fee Ceiling
 
 Protocol fees collected per payment MUST NOT exceed the configuredmaximum fee percentage of the payment amount.
-WalletConnect Session Invariants
-INV-11: Session Custody Preservation
 
-A WalletConnect session MUST NOT hold, derive, or transmit private keymaterial. Session state is limited to the pairing topic, the peer publickey, and the negotiated chain/account identifiers. Disconnecting orrecovering a session MUST NOT alter custody: the user's keys remain intheir wallet at all times.
-INV-12: Session-Bound Authorization
+---
 
-Every state transition that requires a wallet signature (fund, fulfill,refund, dispute resolution) MUST be authorized by a currently activeWalletConnect session whose peer public key matches the account thatsigns the transaction. A signature produced under a session that hasbeen disconnected or expired MUST be rejected.
-INV-13: Session Idempotency
+## Architectural Enforcement References
 
-Reconnecting or recovering a WalletConnect session MUST NOT replay orduplicate any previously submitted operation. Each operation carries aunique request id; a repeated request id within the same session MUSTreturn the original result rather than re-executing the transition.
-INV-14: Session Expiry Monotonicity
-
-Once a WalletConnect session has expired or been disconnected, it MUSTNOT be treated as active again without a fresh pairing handshake. A stalerecovery attempt against an expired session MUST fail with a stableerror and MUST NOT silently re-establish trust.
-INV-15: Disconnected-Session Recovery Safety
-
-Recovery of a disconnected session MUST be explicit and user-initiated.It MUST NOT auto-submit pending operations on the user's behalf, and itMUST surface the pending-operation set so the user can re-confirm eachaction. Recovery MUST preserve INV-04 (no double-settlement) byreconciling against on-chain state before any resubmission.
-Escrow Creation Invariants
-INV-16: Validated Escrow Creation
-
-Escrow creation MUST be a validated, stateful operation rather than acounter increment. Each successful creation MUST persist a distinctescrow record keyed by (creator, nonce) and MUST emit an observablecreation event. A mocked or counter-only implementation MUST NOT be usedin production.
-
-INV-17: Escrow Creation Authorization
-
-Only the authenticated creator identified by the escrow's creator fieldmay create an escrow. Creation requests from any other actor MUST berejected with a stable authorization error and MUST NOT mutate state.
-
-INV-18: Escrow Creation Idempotency
-
-Escrow creation MUST be idempotent per (creator, nonce). A repeatedcreation request with an already-consumed (creator, nonce) pair MUSTreturn the original escrow result rather than creating a second escrowor incrementing any counter. This preserves INV-07 (nonce uniqueness).
-
-INV-19: Escrow Creation Validation
-
-Escrow creation MUST reject malformed input (missing or zero-lengthidentifiers, invalid amounts, unsupported assets) and expired requests(expiry in the past) with stable, distinguishable errors. Rejectedrequests MUST NOT create an escrow or mutate any counter.
-
-INV-20: Escrow Creation Dependency Failure
-
-If a required dependency (token contract, registry, or storage) failsduring escrow creation, the operation MUST fail atomically: no partialescrow record, no counter increment, and no emitted success event. Thefailure MUST surface a stable dependency error.
-
-INV-21: Escrow Creation Feature Gating
-
-Escrow creation behavior that is not yet ready for mainnet MUST beexplicitly feature-gated. When the gate is disabled, creation MUST failclosed with a stable error rather than falling back to the mockedcounter.
+- [CUSTODY-TRUST-THREAT-MODEL.md](./CUSTODY-TRUST-THREAT-MODEL.md): Full threat modeling, trust assumptions, and cryptographic custody boundary enforcement for INV-01 through INV-10.
+- [MAINNET-PROMOTION-AND-GOVERNANCE.md](./MAINNET-PROMOTION-AND-GOVERNANCE.md): Invariant verification suite requirements and multisig governance rules prior to Mainnet launch.
+- [CAPABILITY-MAP.md](./CAPABILITY-MAP.md): Current implementation status of on-chain and off-chain invariant enforcement.

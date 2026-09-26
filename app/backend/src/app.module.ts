@@ -13,6 +13,7 @@ import { APP_GUARD, APP_INTERCEPTOR } from "@nestjs/core";
 
 import { AppConfigModule } from "./config";
 import { AssetMetadataModule } from "./asset-metadata/asset-metadata.module";
+import { AssetListingModule } from "./asset-listing/asset-listing.module";
 import { HealthModule } from "./health/health.module";
 import { StellarModule } from "./stellar/stellar.module";
 import { SupabaseModule } from "./supabase/supabase.module";
@@ -63,6 +64,7 @@ import { DashboardFeedModule } from "./dashboard-feed/dashboard-feed.module";
 import { ContactsModule } from "./contacts/contacts.module";
 import { TeamsModule } from "./teams/teams.module";
 import { BulkOperationsModule } from "./bulk-operations/bulk-operations.module";
+import { SessionModule } from "./session/session.module";
 
 type AppImport =
 | Type<unknown>
@@ -89,6 +91,7 @@ delimiter: ".",
 SupabaseModule,
 HealthModule,
 AssetMetadataModule,
+AssetListingModule,
 StellarModule,
 UsernamesModule,
 MetricsModule,
@@ -123,6 +126,7 @@ OperationsModule,
     TransactionTimelineModule,
     DashboardFeedModule,
     TeamsModule,
+    SessionModule,
     ];
 
     try {
