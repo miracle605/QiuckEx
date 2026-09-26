@@ -83,51 +83,26 @@ const RollbackGuard = {
     return await previousStablePath();
   },
 
-  /**
-   * Protected feature-flag read. Requires the `flags:read` admin scope.
-   */
-  async readFlag(context, flagName) {
-    requireAdminScope(context, ADMIN_SCOPES['flags:read']);
-    if (typeof flagName !== 'string' || flagName.length === 0) {
-      throw adminError(ADMIN_ERRORS.MALFORMED_REQUEST, 'flagName must be a non-empty string');
-    }
-    try {
-      return { flag: flagName, active: this.isFeatureActive(flagName) };
-    } catch (error) {
-      throw adminError(ADMIN_ERRORS.DEPENDENCY_FAILURE, 'Feature-flag store unavailable');
-    }
+  // Issue #216: Horizon circuit-breaker recovery and bounded stale-cache behavior.
+  // Feature-gated so it is not enabled on mainnet until explicitly opted in.
+  isHorizonCircuitBreakerEnabled() {
+    return this.isFeatureActive('HORIZON_CIRCUIT_BREAKER');
   },
 
-  /**
-   * Protected feature-flag write. Requires the `flags:write` admin scope.
-   */
-  async writeFlag(context, flagName, active) {
-    requireAdminScope(context, ADMIN_SCOPES['flags:write']);
-    if (typeof flagName !== 'string' || flagName.length === 0 || typeof active !== 'boolean') {
-      throw adminError(ADMIN_ERRORS.MALFORMED_REQUEST, 'flagName and boolean active are required');
+  // Bounded staleness window (ms) for serving cached Horizon data during outages.
+  // Defaults to 30s; clamped to a safe upper bound so stale data can never be
+  // served indefinitely. Returns 0 when the capability is disabled.
+  getHorizonStaleCacheTtlMs() {
+    if (!this.isHorizonCircuitBreakerEnabled()) {
+      return 0;
     }
-    try {
-      const envKey = `FEATURE_${flagName.toUpperCase()}`;
-      process.env[envKey] = active ? 'true' : 'false';
-      return { flag: flagName, active };
-    } catch (error) {
-      throw adminError(ADMIN_ERRORS.DEPENDENCY_FAILURE, 'Feature-flag store unavailable');
+    const DEFAULT_TTL_MS = 30000;
+    const MAX_TTL_MS = 300000;
+    const raw = Number(process.env.HORIZON_STALE_CACHE_TTL_MS);
+    if (!Number.isFinite(raw) || raw <= 0) {
+      return DEFAULT_TTL_MS;
     }
-  },
-
-  /**
-   * Protected audit read. Requires the `audit:read` admin scope.
-   */
-  async readAudit(context, query) {
-    requireAdminScope(context, ADMIN_SCOPES['audit:read']);
-    if (query !== undefined && (query === null || typeof query !== 'object')) {
-      throw adminError(ADMIN_ERRORS.MALFORMED_REQUEST, 'query must be an object when provided');
-    }
-    try {
-      return { entries: [], query: query || {} };
-    } catch (error) {
-      throw adminError(ADMIN_ERRORS.DEPENDENCY_FAILURE, 'Audit store unavailable');
-    }
+    return Math.min(raw, MAX_TTL_MS);
   }
 };
 
