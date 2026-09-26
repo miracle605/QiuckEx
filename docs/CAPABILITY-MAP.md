@@ -29,6 +29,34 @@ Exactly four status terms are used in this document. If you update a row, use on
 
 ---
 
+## Wallet capability discovery
+
+Wallet capability discovery is the shared contract that lets every surface ask *what a connected wallet can actually do* before it renders a signing flow, and degrade gracefully when a wallet is unsupported. It is owned by `app/frontend/src/lib/wallet-capabilities.ts` (discovery + capability model) and consumed by the payment signing states and the link generator.
+
+| Capability | Owning module | Status | Notes |
+|---|---|---|---|
+| Capability model & discovery | `app/frontend/src/lib/wallet-capabilities.ts` | **Live** | `discoverWalletCapabilities()` probes the injected provider for `signTransaction`, `signAuthEntry`, `signMessage`, and network passphrase support. Returns a stable `WalletCapabilities` object; never throws. |
+| Unsupported-wallet handling | `app/frontend/src/components/payment-states/*` | **Live** | When discovery reports a missing capability, the signing flow renders an explicit unsupported state with a stable error code instead of fabricating a signature. |
+| Soroban auth-entry signing | `app/frontend/src/lib/wallet-capabilities.ts` | **Experimental** | `signAuthEntry` is only required for Soroban contract writes; gated behind the `testnet.contract_writes` flag and `NetworkSafetyGuard`. Wallets without it still work for classic payments. |
+| Capability discovery on mainnet | `app/frontend/src/lib/wallet-capabilities.ts` | **Experimental** | Discovery itself is network-agnostic, but mainnet signing remains gated by the `mainnet.refunds` / contract-write flags; unsupported wallets are rejected with a stable error rather than silently downgraded. |
+
+### Stable error codes
+
+Discovery and the signing flows surface these stable codes (never raw provider messages):
+
+| Code | Meaning |
+|---|---|
+| `WALLET_NOT_INSTALLED` | No injected provider was found. |
+| `WALLET_UNSUPPORTED` | Provider exists but lacks a required capability for the requested operation. |
+| `WALLET_NETWORK_MISMATCH` | Provider's network passphrase does not match the requested network. |
+| `WALLET_DISCOVERY_FAILED` | Provider threw or returned a malformed capability payload (dependency failure). |
+
+### Observability
+
+Discovery emits a structured log line (`wallet.capabilities.discovered`) with the wallet id, the resolved capability set, and latency in ms. It never logs addresses, signatures, or XDR. Failures emit `wallet.capabilities.failed` with the stable code above so success, latency, and failure are diagnosable without exposing secrets.
+
+---
+
 ## Frontend (`app/frontend`)
 
 Next.js 15 app. Base URL via `NEXT_PUBLIC_QUICKEX_API_URL` (`src/lib/api.ts`), default `http://localhost:4000`.
@@ -37,7 +65,7 @@ Next.js 15 app. Base URL via `NEXT_PUBLIC_QUICKEX_API_URL` (`src/lib/api.ts`), d
 |---|---|---|---|
 | Public profile page | `src/app/[username]` → backend `usernames` | **Live** | Real `GET /username/:username`; private profiles degrade correctly. |
 | Pay page + SSR OG previews | `src/app/pay`, `src/lib/og-metadata.ts` → backend `links` | **Live** | Real `GET /payment-links/status`. |
-| Payment signing state | `src/components/payment-states/ActivePaymentState.tsx` | **Mocked** | Fabricates a fake signed XDR string (L148–151); no real wallet signature is produced. |
+| Payment signing state | `src/components/payment-states/ActivePaymentState.tsx` | **Live** | Uses `discoverWalletCapabilities()`; unsupported wallets render an explicit unsupported state with a stable error code instead of a fabricated XDR. |
 | Link generator (assets, path preview, metadata, CSV bulk) | `src/app/generator` → backend `stellar`, `links` | **Live** | Real endpoints throughout; bulk gated by `bulk_link_generation` flag (enabled by default). |
 | Link generator — Soroban contract preflight | `src/app/generator` → backend `stellar` | **Experimental** | `POST /stellar/soroban-preflight` requires `testnet.contract_writes` flag + `NetworkSafetyGuard`; 503 if `QUICKEX_CONTRACT_ID` unset. |
 | Dashboard analytics | `src/app/dashboard`, `src/hooks/analyticsApi.ts` → backend `analytics` | **Live** | Real report/export; silently falls back to empty data on API failure. |
